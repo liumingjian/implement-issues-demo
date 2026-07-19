@@ -1,0 +1,50 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import { buildTagIndex, tagHref } from "../../lib/tags.mjs";
+
+const practices = await getCollection("practices");
+const publicTags = buildTagIndex(practices, { showDrafts: false });
+const allTags = buildTagIndex(practices, { showDrafts: true });
+---
+<Base title="A — 标签总览">
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">A / 标签</p>
+      <h1>标签总览</h1>
+      <p class="lede">按标签找回相关的实践记录。</p>
+    </div>
+    <label class="draft-control">
+      <input type="checkbox" data-draft-toggle />
+      <span>显示草稿</span>
+    </label>
+  </header>
+
+  <section aria-labelledby="tag-list-title">
+    <h2 id="tag-list-title" class="sr-only">所有标签</h2>
+    <p class="empty-state" data-empty hidden={allTags.length > 0}>还没有标签。</p>
+    <ul class="tag-index" data-public-tags>
+      {publicTags.map(({ name, count }) => <li><a href={tagHref(name)}>{name}</a> <span>({count})</span></li>)}
+    </ul>
+    <ul class="tag-index" data-all-tags hidden>
+      {allTags.map(({ name, count }) => <li><a href={tagHref(name)}>{name}</a> <span>({count})</span></li>)}
+    </ul>
+  </section>
+
+  <script>
+    const key = "a-workbench-show-drafts";
+    const toggle = document.querySelector("[data-draft-toggle]");
+    const publicTags = document.querySelector("[data-public-tags]");
+    const allTags = document.querySelector("[data-all-tags]");
+    function apply(showDrafts) {
+      toggle.checked = showDrafts;
+      publicTags.hidden = showDrafts;
+      allTags.hidden = !showDrafts;
+    }
+    apply(localStorage.getItem(key) === "true");
+    toggle.addEventListener("change", () => {
+      localStorage.setItem(key, String(toggle.checked));
+      apply(toggle.checked);
+    });
+  </script>
+</Base>
