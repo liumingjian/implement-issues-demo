@@ -1,0 +1,19 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../layouts/Base.astro";
+const practices = await getCollection("practices");
+practices.sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+---
+<Base title="AI 编程实践">
+  <h1 class="mb-8 text-3xl font-bold">AI 编程实践</h1>
+  <ul class="space-y-6">
+    {practices.map((practice) => (
+      <li>
+        <a class="text-xl font-semibold" href={`/practices/${practice.id}/`}>{practice.data.title}</a>
+        <time class="mt-1 block text-sm text-slate-600" datetime={practice.data.date.toISOString()}>
+          {practice.data.date.toISOString().slice(0, 10)}
+        </time>
+      </li>
+    ))}
+  </ul>
+</Base>
