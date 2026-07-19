@@ -7,10 +7,23 @@ const { title } = Astro.props;
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
     <title>{title}</title>
   </head>
   <body>
-    <main class="mx-auto max-w-3xl px-6 py-12"><slot /></main>
+    <div class="shell">
+      <aside class="sidebar" aria-label="工作台导航">
+        <a class="brand" href="/" aria-label="A 工作台首页"><span aria-hidden="true">A</span><strong>工作台</strong></a>
+        <nav aria-label="主要导航">
+          <a class="nav-current" href="/">时间线</a>
+        </nav>
+        <form class="search" action="/" role="search">
+          <label for="practice-search">搜索实践</label>
+          <input id="practice-search" name="q" type="search" placeholder="标题或标签" />
+        </form>
+      </aside>
+      <main id="main-content"><slot /></main>
+    </div>
   </body>
 </html>
