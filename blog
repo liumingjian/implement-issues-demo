@@ -1,0 +1,49 @@
+#!/bin/sh
+set -u
+
+usage() {
+  printf '%s\n' '用法: ./blog check' >&2
+}
+
+if [ "$#" -ne 1 ] || [ "$1" != "check" ]; then
+  printf '%s\n' '参数错误：当前仅支持 check 命令。' >&2
+  usage
+  exit 2
+fi
+
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+  printf '%s\n' '运行环境错误：Docker 不可用。请启动 Docker Desktop 后重试。' >&2
+  exit 3
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+  printf '%s\n' '运行环境错误：Docker Compose 不可用。请安装或启用 Docker Compose。' >&2
+  exit 3
+fi
+
+printf '%s\n' '检查：在容器内清理输出、校验实践记录并构建站点。'
+if ! docker compose build check; then
+  printf '%s\n' '运行环境错误：容器镜像准备失败。请检查网络、磁盘空间和 Docker 日志后重试。' >&2
+  exit 3
+fi
+
+if docker compose run --rm check; then
+  printf '%s\n' '检查成功：首页与稳定详情页已构建。'
+  exit 0
+else
+  status=$?
+  case "$status" in
+    4)
+      printf '%s\n' '实践记录校验失败：请根据上方错误修复内容后重试。' >&2
+      exit 4
+      ;;
+    130)
+      printf '%s\n' '检查已由用户中断。' >&2
+      exit 130
+      ;;
+    *)
+      printf '%s\n' '构建失败：请查看上方容器日志并修复后重试。' >&2
+      exit 5
+      ;;
+  esac
+fi

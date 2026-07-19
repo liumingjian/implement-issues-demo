@@ -1,0 +1,5 @@
+services:
+  check:
+    build:
+      context: .
+    command: npm run check
