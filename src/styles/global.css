@@ -63,6 +63,16 @@ h1 { margin: .2rem 0; font-family: Georgia, "Songti SC", serif; font-size: clamp
 .pagination [aria-disabled="true"] { color: var(--muted); }
 .empty-state { margin-top: 3rem; border: 1px solid var(--line); padding: 2rem; background: var(--surface); }
 .empty-state h2 { margin-top: 0; font-family: Georgia, "Songti SC", serif; }
+.search-workbench { padding-top: 2rem; }
+.search-workbench > label { display: block; margin-bottom: .5rem; font-weight: 800; }
+.search-workbench > input { width: 100%; min-height: 3rem; border: 1px solid var(--line); border-radius: .25rem; padding: .7rem .85rem; background: var(--surface); color: var(--ink); font-size: 1rem; }
+.search-status, .search-progress { color: var(--muted); }
+.search-results { margin: 2rem 0 0; padding: 0; list-style: none; }
+.search-result { padding: 1.5rem 0; border-top: 1px solid var(--line); }
+.search-result h2 { margin: 0; font-family: Georgia, "Songti SC", serif; }
+.search-result [data-result-evidence] { max-width: 68ch; }
+.search-result mark { background: #f1cf82; color: #18201d; }
+.search-more { min-height: 2.75rem; border: 1px solid var(--accent); padding: .6rem 1rem; background: var(--accent); color: var(--surface); cursor: pointer; font-weight: 800; }
 .back-link { display: inline-block; margin-bottom: 2rem; color: var(--muted); font-weight: 700; text-underline-offset: .25rem; }
 .practice-header { padding-bottom: 2rem; border-bottom: 1px solid var(--line); }
 .practice-header h1 { max-width: 15ch; }

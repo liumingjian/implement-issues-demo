@@ -19,9 +19,9 @@ const { title } = Astro.props;
           <a class="nav-current" href="/">时间线</a>
           <a href="/tags/">标签</a>
         </nav>
-        <form class="search" action="/" role="search">
+        <form class="search" action="/search/" role="search">
           <label for="practice-search">搜索实践</label>
-          <input id="practice-search" name="q" type="search" placeholder="标题或标签" />
+          <input id="practice-search" name="q" type="search" placeholder="标题、摘要、标签或正文" />
         </form>
       </aside>
       <main id="main-content"><slot /></main>

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "astro build",
+    "build": "astro build && node scripts/build-search.mjs",
     "check": "node scripts/check.mjs",
     "test": "node --test tests/*.test.mjs"
   },
@@ -13,5 +13,7 @@
     "astro": "5.4.2",
     "tailwindcss": "3.4.17"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "pagefind": "^1.5.2"
+  }
 }
