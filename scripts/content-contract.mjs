@@ -112,13 +112,16 @@ export async function validatePractices(root, { today = new Intl.DateTimeFormat(
     if (metadata.summary !== undefined && (typeof metadata.summary !== "string" || metadata.summary.trim().length < 1 || metadata.summary.trim().length > 200)) errors.push(error(file, lines.summary, "summary 必须是 1–200 个字符", "请填写非空摘要或删除字段以自动提取"));
     if (!body.trim()) errors.push(error(file, source.split("\n").length, "正文不能为空", "请添加有意义的正文"));
 
+    let codeFenceOpen = false;
     body.split("\n").forEach((line, index) => {
       const number = source.slice(0, source.indexOf(body)).split("\n").length + index;
       if (/^#\s/.test(line)) errors.push(error(file, number, "正文不允许一级标题", "请从二级标题 ## 开始；页面标题由 title 生成"));
       if (/<\/?[A-Za-z][^>]*>/.test(line)) errors.push(error(file, number, "不支持原始 HTML", "请改用 CommonMark/GFM Markdown"));
       if (/\[\^[^\]]+\]/.test(line)) errors.push(error(file, number, "不支持脚注", "请将说明写入普通正文"));
       if (/\$\$|(?<!\\)\$[^$]+\$/.test(line)) errors.push(error(file, number, "不支持数学标记", "请使用普通文本或代码块"));
-      if (/^```\s*$/.test(line)) errors.push(error(file, number, "代码块必须声明语言", "请在 ``` 后添加语言名称"));
+      if (/^```\s*$/.test(line) && !codeFenceOpen) errors.push(error(file, number, "代码块必须声明语言", "请在 ``` 后添加语言名称"));
+      if (/^```\S+/.test(line)) codeFenceOpen = true;
+      else if (/^```\s*$/.test(line) && codeFenceOpen) codeFenceOpen = false;
       if (/^```mermaid\b/i.test(line)) errors.push(error(file, number, "不支持 Mermaid", "请使用受支持的图片附件"));
     });
 
