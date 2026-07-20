@@ -3,3 +3,11 @@ services:
     build:
       context: .
     command: npm run check
+  dev:
+    build:
+      context: .
+    command: npm run dev -- --host 0.0.0.0 --port 4321
+    ports:
+      - "127.0.0.1:4321:4321"
+    volumes:
+      - ./src/content/practices:/app/src/content/practices
