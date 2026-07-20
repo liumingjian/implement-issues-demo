@@ -9,6 +9,7 @@ const root = path.resolve(import.meta.dirname, "..");
 const blog = path.join(root, "blog");
 
 const newCommand = path.join(root, "scripts/new.mjs");
+const publishCommand = path.join(root, "scripts/publish.mjs");
 
 function run(args = [], env = process.env, cwd = root) {
   return spawnSync(blog, args, { cwd, env, encoding: "utf8" });
@@ -28,6 +29,14 @@ async function authoringRepo(files = {}) {
     await writeFile(target, content);
   }
   return { repo, practices };
+}
+
+async function fakeDocker(script) {
+  const bin = await mkdtemp(path.join(tmpdir(), "blog-path-"));
+  const docker = path.join(bin, "docker");
+  await writeFile(docker, `#!/bin/sh\n${script}\n`);
+  await chmod(docker, 0o755);
+  return bin;
 }
 
 test("creates a valid explicit draft with independent archive and practice dates", async () => {
@@ -93,8 +102,9 @@ test("does not leave a draft when generated content fails validation", async () 
   assert.match(result.stderr, /内容校验失败/);
   assert.deepEqual(await readdir(practices), []);
 });
-test("rejects missing and unknown commands with exit 2", () => {
-  for (const args of [[], ["unknown"], ["check", "extra"]]) {
+
+test("rejects missing, unknown, and malformed commands with exit 2", () => {
+  for (const args of [[], ["unknown"], ["check", "extra"], ["dev", "extra"], ["publish"], ["publish", "one", "two"]]) {
     const result = run(args);
     assert.equal(result.status, 2);
     assert.match(result.stderr, /用法|参数错误/);
@@ -110,10 +120,7 @@ test("reports an unavailable container runtime with exit 3", async () => {
 });
 
 test("reports container preparation failures as exit 3", async () => {
-  const bin = await mkdtemp(path.join(tmpdir(), "blog-path-"));
-  const docker = path.join(bin, "docker");
-  await writeFile(docker, `#!/bin/sh\n[ "$1" = info ] && exit 0\n[ "$1 $2" = "compose version" ] && exit 0\n[ "$1 $2" = "compose build" ] && exit 1\nexit 0\n`);
-  await chmod(docker, 0o755);
+  const bin = await fakeDocker(`[ "$1" = info ] && exit 0\n[ "$1 $2" = "compose version" ] && exit 0\n[ "$1 $2" = "compose build" ] && exit 1\nexit 0`);
   const result = run(["check"], { ...process.env, PATH: `${bin}:/bin:/usr/bin` });
   assert.equal(result.status, 3);
   assert.match(result.stderr, /容器镜像准备失败/);
@@ -121,21 +128,66 @@ test("reports container preparation failures as exit 3", async () => {
 
 test("preserves content validation and interruption exit statuses", async () => {
   for (const status of [4, 130]) {
-    const bin = await mkdtemp(path.join(tmpdir(), "blog-path-"));
-    const docker = path.join(bin, "docker");
-    await writeFile(docker, `#!/bin/sh\n[ "$1" = info ] && exit 0\n[ "$1 $2" = "compose version" ] && exit 0\n[ "$1 $2" = "compose build" ] && exit 0\nexit ${status}\n`);
-    await chmod(docker, 0o755);
+    const bin = await fakeDocker(`[ "$1" = info ] && exit 0\n[ "$1 $2" = "compose version" ] && exit 0\n[ "$1 $2" = "compose build" ] && exit 0\nexit ${status}`);
     const result = run(["check"], { ...process.env, PATH: `${bin}:/bin:/usr/bin` });
     assert.equal(result.status, status);
   }
 });
 
 test("maps container build failures to exit 5", async () => {
-  const bin = await mkdtemp(path.join(tmpdir(), "blog-path-"));
-  const docker = path.join(bin, "docker");
-  await writeFile(docker, `#!/bin/sh\n[ "$1" = info ] && exit 0\n[ "$1 $2" = "compose version" ] && exit 0\n[ "$1 $2" = "compose build" ] && exit 0\nexit 5\n`);
-  await chmod(docker, 0o755);
+  const bin = await fakeDocker(`[ "$1" = info ] && exit 0\n[ "$1 $2" = "compose version" ] && exit 0\n[ "$1 $2" = "compose build" ] && exit 0\nexit 5`);
   const result = run(["check"], { ...process.env, PATH: `${bin}:/bin:/usr/bin` });
   assert.equal(result.status, 5);
   assert.match(result.stderr, /构建失败/);
+});
+
+test("dev validates before startup and uses the documented fixed address", async () => {
+  const log = path.join(await mkdtemp(path.join(tmpdir(), "blog-dev-")), "docker.log");
+  const bin = await fakeDocker(`printf '%s\\n' "$*" >> "${log}"\n[ "$1" = info ] && exit 0\nexit 0`);
+  const result = run(["dev"], { ...process.env, PATH: `${bin}:/bin:/usr/bin` });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /http:\/\/localhost:4321/);
+  const calls = await readFile(log, "utf8");
+  assert.match(calls, /compose run --rm check node scripts\/validate.mjs/);
+  assert.match(calls, /compose run --rm --service-ports dev/);
+  assert.ok(calls.indexOf("validate.mjs") < calls.indexOf("--service-ports dev"));
+});
+
+test("dev blocks invalid initial content and reports port conflicts", async () => {
+  for (const [runStatus, expectedStatus, expected] of [[4, 4, /校验失败/], [125, 3, /4321.*占用/]]) {
+    const bin = await fakeDocker(`[ "$1" = info ] && exit 0\n[ "$1 $2" = "compose version" ] && exit 0\n[ "$1 $2" = "compose build" ] && exit 0\ncase "$*" in *validate.mjs*) ${runStatus === 4 ? "exit 4" : "exit 0"};; *--service-ports*) exit ${runStatus};; esac\nexit 0`);
+    const result = run(["dev"], { ...process.env, PATH: `${bin}:/bin:/usr/bin` });
+    assert.equal(result.status, expectedStatus, result.stderr);
+    assert.match(result.stderr, expected);
+  }
+});
+
+test("publish changes only the selected explicit draft after two passing checks", async () => {
+  const draft = `---\ntitle: "目标"\ndate: "2026-01-01"\ndraft: true\n---\n\n正文。\n`;
+  const other = `---\ntitle: "其他"\ndate: "2026-01-01"\ndraft: true\n---\n\n其他。\n`;
+  const { repo, practices } = await authoringRepo({ "2026-01-01-target.md": draft, "2026-01-01-other.md": other });
+  const checker = path.join(repo, "check.sh");
+  await writeFile(checker, "#!/bin/sh\nexit 0\n");
+  await chmod(checker, 0o755);
+  const result = spawnSync(process.execPath, [publishCommand, "target"], { cwd: root, env: { ...process.env, BLOG_REPOSITORY_ROOT: repo, BLOG_ACCEPTANCE_COMMAND: checker }, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(await readFile(path.join(practices, "2026-01-01-target.md"), "utf8"), draft.replace("draft: true", "draft: false"));
+  assert.equal(await readFile(path.join(practices, "2026-01-01-other.md"), "utf8"), other);
+});
+
+test("publish rejects non-drafts and restores the exact source after a failed post-check", async () => {
+  const draft = `---\ntitle: "目标"\ndate: "2026-01-01"\ndraft: true\n---\n\n正文。\n`;
+  const { repo, practices } = await authoringRepo({ "2026-01-01-target.md": draft });
+  const checker = path.join(repo, "check.sh");
+  await writeFile(checker, `#!/bin/sh\ncount_file="${repo}/count"\ncount=0\n[ -f "$count_file" ] && count=$(cat "$count_file")\ncount=$((count + 1))\nprintf '%s' "$count" > "$count_file"\n[ "$count" -eq 1 ] && exit 0\nexit 5\n`);
+  await chmod(checker, 0o755);
+  const failed = spawnSync(process.execPath, [publishCommand, "target"], { cwd: root, env: { ...process.env, BLOG_REPOSITORY_ROOT: repo, BLOG_ACCEPTANCE_COMMAND: checker }, encoding: "utf8" });
+  assert.equal(failed.status, 5);
+  assert.match(failed.stderr, /已精确恢复/);
+  assert.equal(await readFile(path.join(practices, "2026-01-01-target.md"), "utf8"), draft);
+
+  await writeFile(path.join(practices, "2026-01-01-target.md"), draft.replace("draft: true", "draft: false"));
+  const notDraft = spawnSync(process.execPath, [publishCommand, "target"], { cwd: root, env: { ...process.env, BLOG_REPOSITORY_ROOT: repo, BLOG_ACCEPTANCE_COMMAND: "/usr/bin/true" }, encoding: "utf8" });
+  assert.equal(notDraft.status, 2);
+  assert.match(notDraft.stderr, /不是草稿/);
 });

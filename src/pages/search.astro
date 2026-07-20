@@ -7,6 +7,7 @@ import Base from "../layouts/Base.astro";
       <p class="eyebrow">A / 搜索</p>
       <h1>搜索实践</h1>
       <p class="lede">搜索标题、摘要、标签和正文。</p>
+      {import.meta.env.DEV && <p class="search-dev-note">开发模式不会生成 Pagefind 索引；请运行 <code>./blog check</code> 验证生产搜索。</p>}
     </div>
     <label class="draft-control">
       <input type="checkbox" data-search-drafts />
