@@ -6,7 +6,8 @@
   "scripts": {
     "build": "astro build && node scripts/build-search.mjs",
     "check": "node scripts/check.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "fixture:performance": "node scripts/fixtures.mjs"
   },
   "dependencies": {
     "@astrojs/tailwind": "6.0.0",
