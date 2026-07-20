@@ -1,19 +1,97 @@
 ---
 import { getCollection } from "astro:content";
 import Base from "../layouts/Base.astro";
-const practices = await getCollection("practices");
-practices.sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+import { groupPractices, orderPractices, PAGE_SIZE } from "../lib/timeline.mjs";
+
+const practices = orderPractices(await getCollection("practices"));
+const publicCount = practices.filter(({ data }) => !data.draft).length;
+const hasOnlyDrafts = practices.length > 0 && practices.every(({ data }) => data.draft);
 ---
-<Base title="AI 编程实践">
-  <h1 class="mb-8 text-3xl font-bold">AI 编程实践</h1>
-  <ul class="space-y-6">
-    {practices.map((practice) => (
-      <li>
-        <a class="text-xl font-semibold" href={`/practices/${practice.id}/`}>{practice.data.title}</a>
-        <time class="mt-1 block text-sm text-slate-600" datetime={practice.data.date.toISOString()}>
-          {practice.data.date.toISOString().slice(0, 10)}
-        </time>
-      </li>
-    ))}
-  </ul>
+<Base title="A — 工作台时间线">
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">A / 工作台</p>
+      <h1>实践时间线</h1>
+      <p class="lede">按实践日期回看每一次探索、判断与交付。</p>
+    </div>
+    <label class="draft-control">
+      <input type="checkbox" data-draft-toggle />
+      <span>显示草稿</span>
+    </label>
+  </header>
+
+  <div data-timeline>
+    {practices.length === 0 && <section class="empty-state"><h2>还没有实践记录</h2><p>添加第一篇记录后，它会出现在这里。</p></section>}
+    {hasOnlyDrafts && <section class="empty-state" data-drafts-hidden><h2>所有实践记录都是草稿</h2><p>开启“显示草稿”即可浏览。</p></section>}
+
+    <div class="timeline" hidden={practices.length === 0}>
+      {groupPractices(practices).map((group) => (
+        <section class="month-group" aria-labelledby={`month-${group.key}`}>
+          <h2 id={`month-${group.key}`}>{group.key.replace("-", " 年 ")} 月</h2>
+          <ol>
+            {group.items.map((practice) => (
+              <li class="entry" data-draft={practice.data.draft ? "true" : "false"}>
+                <article>
+                  <div class="entry-heading">
+                    <h3><a href={`/practices/${practice.id}/`}>{practice.data.title}</a></h3>
+                    {practice.data.draft && <span class="draft-badge">草稿</span>}
+                  </div>
+                  <time datetime={practice.data.date.toISOString()}>{practice.data.date.toISOString().slice(0, 10)}</time>
+                  <p class="summary">{practice.data.summary ?? "暂无摘要"}</p>
+                  {practice.data.tags.length > 0 && <ul class="tags" aria-label="标签">{practice.data.tags.map((tag) => <li>{tag}</li>)}</ul>}
+                </article>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ))}
+    </div>
+
+    <nav class="pagination" aria-label="时间线分页"></nav>
+  </div>
+
+  <script define:vars={{ publicCount, pageSize: PAGE_SIZE }}>
+    const key = "a-workbench-show-drafts";
+    const toggle = document.querySelector("[data-draft-toggle]");
+    const rows = [...document.querySelectorAll(".entry")];
+    const hiddenMessage = document.querySelector("[data-drafts-hidden]");
+    const pagination = document.querySelector(".pagination");
+
+    function state() {
+      const requested = Number.parseInt(new URL(location.href).searchParams.get("page") ?? "1", 10);
+      return Number.isInteger(requested) && requested > 0 ? requested : 1;
+    }
+
+    function paginationHref(target) {
+      return target > 1 ? `/?page=${target}` : "/";
+    }
+
+    function apply(showDrafts) {
+      toggle.checked = showDrafts;
+      const visibleRows = rows.filter((row) => showDrafts || row.dataset.draft !== "true");
+      const pages = Math.ceil(visibleRows.length / pageSize);
+      const page = pages === 0 ? 1 : Math.min(state(), pages);
+      const start = (page - 1) * pageSize;
+      rows.forEach((row) => { row.hidden = true; });
+      visibleRows.slice(start, start + pageSize).forEach((row) => { row.hidden = false; });
+      document.querySelectorAll(".month-group").forEach((group) => {
+        group.hidden = !group.querySelector(".entry:not([hidden])");
+      });
+      if (hiddenMessage) hiddenMessage.hidden = showDrafts || publicCount > 0;
+      pagination.hidden = pages <= 1;
+      if (pages > 1) {
+        pagination.innerHTML = `${page > 1 ? `<a href="${paginationHref(page - 1)}">上一页</a>` : '<span aria-disabled="true">上一页</span>'}<span>第 ${page} / ${pages} 页</span>${page < pages ? `<a href="${paginationHref(page + 1)}">下一页</a>` : '<span aria-disabled="true">下一页</span>'}`;
+      }
+    }
+
+    apply(localStorage.getItem(key) === "true");
+    toggle.addEventListener("change", () => {
+      localStorage.setItem(key, String(toggle.checked));
+      if (new URL(location.href).searchParams.has("page")) {
+        location.assign("/");
+        return;
+      }
+      apply(toggle.checked);
+    });
+  </script>
 </Base>

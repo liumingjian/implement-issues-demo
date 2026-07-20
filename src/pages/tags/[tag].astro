@@ -1,0 +1,86 @@
+---
+import { getCollection } from "astro:content";
+import Base from "../../layouts/Base.astro";
+import { buildTagTimeline } from "../../lib/tags.mjs";
+import { groupPractices, orderPractices, PAGE_SIZE } from "../../lib/timeline.mjs";
+
+export async function getStaticPaths() {
+  const practices = await getCollection("practices");
+  const tags = new Set(practices.flatMap(({ data }) => data.tags));
+  return [...tags].map((tag) => ({ params: { tag }, props: { tag } }));
+}
+
+const practices = await getCollection("practices");
+const tag = Astro.props.tag ?? decodeURIComponent(Astro.params.tag ?? "");
+const publicTimeline = buildTagTimeline(practices, tag, { showDrafts: false, page: 1 });
+const allTimeline = buildTagTimeline(practices, tag, { showDrafts: true, page: 1 });
+const orderedPractices = orderPractices(practices).filter(({ data }) => data.tags.includes(tag));
+const publicCount = orderedPractices.filter(({ data }) => !data.draft).length;
+if (!allTimeline.known) Astro.response.status = 404;
+---
+<Base title={`A — 标签：${tag}`}>
+  <header class="page-header">
+    <div>
+      <p class="eyebrow"><a href="/tags/">标签</a> / {tag}</p>
+      <h1>{tag}</h1>
+      <p class="lede"><span data-count>{publicCount}</span> 条实践记录</p>
+    </div>
+    <label class="draft-control">
+      <input type="checkbox" data-draft-toggle />
+      <span>显示草稿</span>
+    </label>
+  </header>
+
+  <section class="empty-state" data-drafts-hidden hidden={publicTimeline.emptyReason !== "drafts-hidden"}>
+    <h2>该标签目前只有草稿</h2><p>开启“显示草稿”即可浏览。</p>
+  </section>
+  <div class="timeline" data-entries>
+    {groupPractices(orderedPractices).map((group) => (
+      <section class="month-group" aria-labelledby={`month-${group.key}`}>
+        <h2 id={`month-${group.key}`}>{group.key.replace("-", " 年 ")} 月</h2>
+        <ol>{group.items.map((practice) => (
+          <li class="entry" data-draft={practice.data.draft ? "true" : "false"}>
+            <article>
+              <div class="entry-heading"><h3><a href={`/practices/${practice.id}/`}>{practice.data.title}</a></h3>{practice.data.draft && <span class="draft-badge">草稿</span>}</div>
+              <time datetime={practice.data.date.toISOString()}>{practice.data.date.toISOString().slice(0, 10)}</time>
+              <p class="summary">{practice.data.summary ?? "暂无摘要"}</p>
+            </article>
+          </li>
+        ))}</ol>
+      </section>
+    ))}
+  </div>
+  <nav class="pagination" aria-label="标签实践分页"></nav>
+
+  <script define:vars={{ tag, pageSize: PAGE_SIZE }}>
+    const key = "a-workbench-show-drafts";
+    const toggle = document.querySelector("[data-draft-toggle]");
+    const rows = [...document.querySelectorAll(".entry")];
+    const hiddenMessage = document.querySelector("[data-drafts-hidden]");
+    const pagination = document.querySelector(".pagination");
+    const count = document.querySelector("[data-count]");
+    const requested = Number.parseInt(new URL(location.href).searchParams.get("page") ?? "1", 10);
+    const requestedPage = Number.isInteger(requested) && requested > 0 ? requested : 1;
+    const href = (page) => `/tags/${encodeURIComponent(tag)}/${page > 1 ? `?page=${page}` : ""}`;
+
+    function apply(showDrafts) {
+      toggle.checked = showDrafts;
+      const visible = rows.filter((row) => showDrafts || row.dataset.draft !== "true");
+      const pages = Math.ceil(visible.length / pageSize);
+      const page = pages === 0 ? 1 : Math.min(requestedPage, pages);
+      rows.forEach((row) => { row.hidden = true; });
+      visible.slice((page - 1) * pageSize, page * pageSize).forEach((row) => { row.hidden = false; });
+      document.querySelectorAll(".month-group").forEach((group) => { group.hidden = !group.querySelector(".entry:not([hidden])"); });
+      hiddenMessage.hidden = showDrafts || visible.length > 0;
+      count.textContent = String(visible.length);
+      pagination.hidden = pages <= 1;
+      pagination.innerHTML = pages > 1 ? `${page > 1 ? `<a href="${href(page - 1)}">上一页</a>` : '<span aria-disabled="true">上一页</span>'}<span>第 ${page} / ${pages} 页</span>${page < pages ? `<a href="${href(page + 1)}">下一页</a>` : '<span aria-disabled="true">下一页</span>'}` : "";
+    }
+    apply(localStorage.getItem(key) === "true");
+    toggle.addEventListener("change", () => {
+      localStorage.setItem(key, String(toggle.checked));
+      if (new URL(location.href).searchParams.has("page")) location.assign(href(1));
+      else apply(toggle.checked);
+    });
+  </script>
+</Base>

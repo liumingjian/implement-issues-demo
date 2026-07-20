@@ -2,13 +2,42 @@
 set -u
 
 usage() {
-  printf '%s\n' '用法: ./blog check' >&2
+  printf '%s\n' '用法: ./blog check | ./blog new --title "标题" --slug "stable-slug" [--date YYYY-MM-DD]' >&2
 }
 
-if [ "$#" -ne 1 ] || [ "$1" != "check" ]; then
-  printf '%s\n' '参数错误：当前仅支持 check 命令。' >&2
+if [ "$#" -lt 1 ] || { [ "$1" != "check" ] && [ "$1" != "new" ]; }; then
+  printf '%s\n' '参数错误：当前支持 check 与 new 命令。' >&2
   usage
   exit 2
+fi
+
+command=$1
+shift
+if { [ "$command" = "check" ] && [ "$#" -ne 0 ]; }; then
+  printf '%s\n' '参数错误：check 命令不接受额外参数。' >&2
+  usage
+  exit 2
+fi
+
+if [ "$command" = "new" ]; then
+  if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    printf '%s\n' '创建失败：Docker 不可用。请启动 Docker Desktop 后重试。' >&2
+    exit 3
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    printf '%s\n' '创建失败：Docker Compose 不可用。请安装或启用 Docker Compose。' >&2
+    exit 3
+  fi
+  if ! docker compose build check; then
+    printf '%s\n' '创建失败：容器镜像准备失败。请检查网络、磁盘空间和 Docker 日志后重试。' >&2
+    exit 3
+  fi
+  repository_root=$(CDPATH= cd -- "${BLOG_REPOSITORY_ROOT:-$(dirname -- "$0")}" && pwd)
+  exec docker compose run --rm \
+    -e BLOG_REPOSITORY_ROOT=/app \
+    -e BLOG_TODAY \
+    -v "$repository_root/src/content/practices:/app/src/content/practices" \
+    check node scripts/new.mjs "$@"
 fi
 
 if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
