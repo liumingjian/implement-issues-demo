@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,8 +12,8 @@ const distRoot = path.join(root, "dist");
 const started = performance.now();
 const MAX_CHECK_MS = 60_000;
 
-function run(command, args) {
-  const result = spawnSync(command, args, { cwd: root, stdio: "inherit" });
+function run(command, args, env = {}) {
+  const result = spawnSync(command, args, { cwd: root, stdio: "inherit", env: { ...process.env, ...env } });
   if (result.status !== 0) process.exitCode = 5;
   return result.status === 0;
 }
@@ -42,8 +42,7 @@ async function assertOutput(records, performanceCorpus = false) {
     const drafts = records.filter(({ draft }) => draft);
     if (formal.length < 21 || drafts.length < 1) throw new Error("固定 fixture 正式或草稿记录数量不足");
     for (const record of records) {
-      const routeId = path.basename(record.file, ".md");
-      await readFile(path.join(distRoot, "practices", routeId, "index.html"));
+      await readFile(path.join(distRoot, "practices", record.slug, "index.html"));
     }
     const publicDraftFiles = await searchIndex("pagefind-public", "draftonlytoken");
     const draftDraftFiles = await searchIndex("pagefind-drafts", "draftonlytoken");
@@ -83,16 +82,13 @@ async function searchIndex(name, term) {
   }
 }
 
-async function authorCorpus(operation) {
-  const temporary = await mkdtemp(path.join(tmpdir(), "blog-check-author-"));
-  const backup = path.join(temporary, "content");
-  await cp(practicesRoot, backup, { recursive: true });
+async function fixtureCorpus(prefix, generate, operation) {
+  const directory = await mkdtemp(path.join(tmpdir(), prefix));
   try {
-    return await operation();
+    await generate(directory);
+    return await operation(directory);
   } finally {
-    await rm(practicesRoot, { recursive: true, force: true });
-    await cp(backup, practicesRoot, { recursive: true });
-    await rm(temporary, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true });
   }
 }
 
@@ -101,16 +97,16 @@ try {
   await validate(practicesRoot);
   if (!run("npm", ["test"])) throw new Error("regression-tests");
 
-  await authorCorpus(async () => {
-    await generateAcceptanceFixtures(practicesRoot);
-    const acceptanceRecords = await validate(practicesRoot);
-    if (!run("npm", ["run", "build"])) throw new Error("acceptance-build");
+  await fixtureCorpus("blog-check-acceptance-", generateAcceptanceFixtures, async (fixtureRoot) => {
+    const acceptanceRecords = await validate(fixtureRoot);
+    if (!run("npm", ["run", "build"], { PRACTICES_ROOT: fixtureRoot })) throw new Error("acceptance-build");
     await assertOutput(acceptanceRecords);
+  });
 
-    await generatePerformanceFixtures(practicesRoot);
-    const performanceRecords = await validate(practicesRoot);
+  await fixtureCorpus("blog-check-performance-", generatePerformanceFixtures, async (fixtureRoot) => {
+    const performanceRecords = await validate(fixtureRoot);
     if (performanceRecords.length !== 1000) throw new Error("性能 fixture 必须恰好包含 1,000 条记录");
-    if (!run("npm", ["run", "build"])) throw new Error("performance-build");
+    if (!run("npm", ["run", "build"], { PRACTICES_ROOT: fixtureRoot })) throw new Error("performance-build");
     await assertOutput(performanceRecords, true);
   });
 

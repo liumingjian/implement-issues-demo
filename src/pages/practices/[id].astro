@@ -2,18 +2,18 @@
 import { getCollection, render } from "astro:content";
 import Base from "../../layouts/Base.astro";
 import { practiceNeighbors } from "../../lib/detail.mjs";
-import { orderPractices } from "../../lib/timeline.mjs";
+import { orderPractices, practiceSlug } from "../../lib/timeline.mjs";
 
 export async function getStaticPaths() {
   const practices = await getCollection("practices");
-  return practices.map((practice) => ({ params: { id: practice.id }, props: { practice, practices } }));
+  return practices.map((practice) => ({ params: { id: practiceSlug(practice.id) }, props: { practice, practices } }));
 }
 
 const { practice, practices } = Astro.props;
 const { Content, headings } = await render(practice);
 const contents = headings.filter(({ depth }) => depth === 2 || depth === 3);
 const initial = practiceNeighbors(practices, practice.id, false);
-const navigationRecords = orderPractices(practices).map(({ id, data }) => ({ id, title: data.title, draft: data.draft }));
+const navigationRecords = orderPractices(practices).map(({ id, data }) => ({ id, slug: practiceSlug(id), title: data.title, draft: data.draft }));
 ---
 <Base title={`${practice.data.title} — AI 编程实践`}>
   <a class="back-link" href="/">← 返回时间线</a>
@@ -44,9 +44,9 @@ const navigationRecords = orderPractices(practices).map(({ id, data }) => ({ id,
     </article>
     <div hidden data-pagefind-body>
       <span data-pagefind-meta="date">{practice.data.date.toISOString().slice(0, 10)}</span>
-      <span data-pagefind-meta="title">{practice.data.title}</span>
-      {practice.data.summary && <span data-pagefind-meta="summary">{practice.data.summary}</span>}
-      {practice.data.tags.map((tag) => <span data-pagefind-meta="tag">{tag}</span>)}
+      <span data-pagefind-meta="title" data-pagefind-weight="10">{practice.data.title}</span>
+      {practice.data.summary && <span data-pagefind-meta="summary" data-pagefind-weight="3">{practice.data.summary}</span>}
+      {practice.data.tags.map((tag) => <span data-pagefind-meta="tag" data-pagefind-weight="5">{tag}</span>)}
     </div>
     {contents.length > 0 && (
       <aside class="desktop-toc">
@@ -60,10 +60,10 @@ const navigationRecords = orderPractices(practices).map(({ id, data }) => ({ id,
 
   <nav class="practice-navigation" aria-label="前后实践记录">
     <div data-neighbor="newer">
-      {initial.newer && <a href={`/practices/${initial.newer.id}/`}><span>较新的实践</span><strong>{initial.newer.data.title}</strong></a>}
+      {initial.newer && <a href={`/practices/${practiceSlug(initial.newer.id)}/`}><span>较新的实践</span><strong>{initial.newer.data.title}</strong></a>}
     </div>
     <div data-neighbor="older">
-      {initial.older && <a href={`/practices/${initial.older.id}/`}><span>较早的实践</span><strong>{initial.older.data.title}</strong></a>}
+      {initial.older && <a href={`/practices/${practiceSlug(initial.older.id)}/`}><span>较早的实践</span><strong>{initial.older.data.title}</strong></a>}
     </div>
   </nav>
 
@@ -83,7 +83,7 @@ const navigationRecords = orderPractices(practices).map(({ id, data }) => ({ id,
       slot.replaceChildren();
       if (!record) return;
       const link = document.createElement("a");
-      link.href = `/practices/${encodeURIComponent(record.id)}/`;
+      link.href = `/practices/${encodeURIComponent(record.slug)}/`;
       const caption = document.createElement("span");
       caption.textContent = label;
       const title = document.createElement("strong");

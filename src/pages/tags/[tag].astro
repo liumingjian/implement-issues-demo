@@ -2,7 +2,7 @@
 import { getCollection } from "astro:content";
 import Base from "../../layouts/Base.astro";
 import { buildTagTimeline } from "../../lib/tags.mjs";
-import { groupPractices, orderPractices, PAGE_SIZE } from "../../lib/timeline.mjs";
+import { groupPractices, orderPractices, PAGE_SIZE, practiceSlug } from "../../lib/timeline.mjs";
 
 export async function getStaticPaths() {
   const practices = await getCollection("practices");
@@ -39,9 +39,9 @@ if (!allTimeline.known) Astro.response.status = 404;
       <section class="month-group" aria-labelledby={`month-${group.key}`}>
         <h2 id={`month-${group.key}`}>{group.key.replace("-", " 年 ")} 月</h2>
         <ol>{group.items.map((practice) => (
-          <li class="entry" data-draft={practice.data.draft ? "true" : "false"}>
+          <li class="entry" data-draft={practice.data.draft ? "true" : "false"} hidden={practice.data.draft}>
             <article>
-              <div class="entry-heading"><h3><a href={`/practices/${practice.id}/`}>{practice.data.title}</a></h3>{practice.data.draft && <span class="draft-badge">草稿</span>}</div>
+              <div class="entry-heading"><h3><a href={`/practices/${practiceSlug(practice.id)}/`}>{practice.data.title}</a></h3>{practice.data.draft && <span class="draft-badge">草稿</span>}</div>
               <time datetime={practice.data.date.toISOString()}>{practice.data.date.toISOString().slice(0, 10)}</time>
               <p class="summary">{practice.data.summary ?? "暂无摘要"}</p>
             </article>

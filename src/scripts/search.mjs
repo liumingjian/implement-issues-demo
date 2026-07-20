@@ -113,6 +113,7 @@ if (input && toggle && resultsNode && statusNode && progressNode && moreButton &
 
   function schedule() {
     clearTimeout(timer);
+    requestId += 1;
     const query = input.value.trim();
     setUrl(query);
     timer = setTimeout(() => runSearch(query), 200);
@@ -134,7 +135,12 @@ if (input && toggle && resultsNode && statusNode && progressNode && moreButton &
   addEventListener("pagehide", saveState);
 
   const params = new URLSearchParams(location.search);
-  const saved = JSON.parse(sessionStorage.getItem(stateKey) || "null");
+  let saved = null;
+  try {
+    saved = JSON.parse(sessionStorage.getItem(stateKey) || "null");
+  } catch {
+    sessionStorage.removeItem(stateKey);
+  }
   input.value = params.get("q") || "";
   toggle.checked = localStorage.getItem(preferenceKey) === "true";
   if (saved?.query === input.value) {

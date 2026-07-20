@@ -76,6 +76,22 @@ test("validates attachments, image alternatives, local paths and external links"
   for (const expected of ["替代文本", "不存在", "HTTPS", "绝对", "越出", "不允许的附件类型", "孤立附件"]) assert.match(text, new RegExp(expected));
 });
 
+test("rejects unquoted dates and malformed local-link encoding without crashing", async () => {
+  const root = await corpus({
+    "2026-07-19-links.md": `---\ntitle: "有效标题"\ndate: 2026-07-18\n---\n\n[损坏链接](bad%ZZ.txt)\n`,
+  });
+  const { errors } = await validatePractices(root, { today: "2026-07-19" });
+  const text = errors.map((issue) => issue.reason).join("\n");
+  assert.match(text, /使用引号/);
+  assert.match(text, /编码无效/);
+});
+test("permits declared fenced code without validating its contents as Markdown", async () => {
+  const root = await corpus({
+    "2026-07-19-code.md": valid("", "```html\n<div>示例</div>\n```\n\n~~~text\n普通文本\n~~~"),
+  });
+  const { errors } = await validatePractices(root, { today: "2026-07-19" });
+  assert.deepEqual(errors, []);
+});
 test("rejects unsafe SVG and permits referenced safe SVG", async () => {
   const root = await corpus({
     "2026-07-19-safe.md": valid("", "![安全图](safe.assets/safe.svg)\n\n![危险图](safe.assets/bad.svg)"),
