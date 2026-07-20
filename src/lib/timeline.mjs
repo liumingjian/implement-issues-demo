@@ -9,6 +9,10 @@ export function pageHref(page) {
   return page > 1 ? `/?page=${page}` : "/";
 }
 
+export function practiceSlug(id) {
+  return id.replace(/^\d{4}-\d{2}-\d{2}-/, "");
+}
+
 export function orderPractices(records) {
   return [...records].sort((a, b) => {
     const dateDifference = b.data.date.valueOf() - a.data.date.valueOf();

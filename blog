@@ -2,37 +2,58 @@
 set -u
 
 usage() {
-  printf '%s\n' '用法: ./blog check | ./blog new --title "标题" --slug "stable-slug" [--date YYYY-MM-DD]' >&2
+  printf '%s\n' '用法: ./blog check | ./blog dev | ./blog new --title "标题" --slug "stable-slug" [--date YYYY-MM-DD] | ./blog publish stable-slug' >&2
 }
 
-if [ "$#" -lt 1 ] || { [ "$1" != "check" ] && [ "$1" != "new" ]; }; then
-  printf '%s\n' '参数错误：当前支持 check 与 new 命令。' >&2
+if [ "$#" -lt 1 ]; then
+  printf '%s\n' '参数错误：缺少命令。' >&2
   usage
   exit 2
 fi
-
 command=$1
 shift
-if { [ "$command" = "check" ] && [ "$#" -ne 0 ]; }; then
-  printf '%s\n' '参数错误：check 命令不接受额外参数。' >&2
-  usage
-  exit 2
-fi
+case "$command" in
+  check|dev)
+    if [ "$#" -ne 0 ]; then
+      printf '%s\n' "参数错误：$command 命令不接受额外参数。" >&2
+      usage
+      exit 2
+    fi
+    ;;
+  new) ;;
+  publish)
+    if [ "$#" -ne 1 ]; then
+      printf '%s\n' '参数错误：publish 需要且只接受一个 slug。' >&2
+      usage
+      exit 2
+    fi
+    ;;
+  *)
+    printf '%s\n' '参数错误：当前支持 check、dev、new 与 publish 命令。' >&2
+    usage
+    exit 2
+    ;;
+esac
 
-if [ "$command" = "new" ]; then
+runtime() {
   if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-    printf '%s\n' '创建失败：Docker 不可用。请启动 Docker Desktop 后重试。' >&2
+    printf '%s\n' '运行环境错误：Docker 不可用。请启动 Docker Desktop 后重试。' >&2
     exit 3
   fi
   if ! docker compose version >/dev/null 2>&1; then
-    printf '%s\n' '创建失败：Docker Compose 不可用。请安装或启用 Docker Compose。' >&2
+    printf '%s\n' '运行环境错误：Docker Compose 不可用。请安装或启用 Docker Compose。' >&2
     exit 3
   fi
+}
+
+runtime
+repository_root=$(CDPATH= cd -- "${BLOG_REPOSITORY_ROOT:-$(dirname -- "$0")}" && pwd)
+
+if [ "$command" = "new" ]; then
   if ! docker compose build check; then
     printf '%s\n' '创建失败：容器镜像准备失败。请检查网络、磁盘空间和 Docker 日志后重试。' >&2
     exit 3
   fi
-  repository_root=$(CDPATH= cd -- "${BLOG_REPOSITORY_ROOT:-$(dirname -- "$0")}" && pwd)
   exec docker compose run --rm \
     -e BLOG_REPOSITORY_ROOT=/app \
     -e BLOG_TODAY \
@@ -40,39 +61,58 @@ if [ "$command" = "new" ]; then
     check node scripts/new.mjs "$@"
 fi
 
-if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-  printf '%s\n' '运行环境错误：Docker 不可用。请启动 Docker Desktop 后重试。' >&2
-  exit 3
+if [ "$command" = "publish" ]; then
+  if ! docker compose build check; then
+    printf '%s\n' '转正失败：容器镜像准备失败。请检查网络、磁盘空间和 Docker 日志后重试。' >&2
+    exit 3
+  fi
+  exec docker compose run --rm \
+    -e BLOG_REPOSITORY_ROOT=/app \
+    -v "$repository_root/src/content/practices:/app/src/content/practices" \
+    check node scripts/publish.mjs "$1"
 fi
 
-if ! docker compose version >/dev/null 2>&1; then
-  printf '%s\n' '运行环境错误：Docker Compose 不可用。请安装或启用 Docker Compose。' >&2
-  exit 3
-fi
-
-printf '%s\n' '检查：在容器内清理输出、校验实践记录并构建站点。'
 if ! docker compose build check; then
   printf '%s\n' '运行环境错误：容器镜像准备失败。请检查网络、磁盘空间和 Docker 日志后重试。' >&2
   exit 3
 fi
 
+if [ "$command" = "dev" ]; then
+  printf '%s\n' '开发启动前：校验全部实践记录。'
+  docker compose run --rm check node scripts/validate.mjs
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    printf '%s\n' '开发启动失败：实践记录校验失败，请修复后重试。' >&2
+    exit "$status"
+  fi
+  printf '%s\n' '开发预览：http://localhost:4321。运行时内容错误会显示在终端，修复后开发服务器继续监听。'
+  printf '%s\n' '开发模式不会生成 Pagefind 索引；请运行 ./blog check 验证生产搜索。'
+  trap 'docker compose down --remove-orphans >/dev/null 2>&1; exit 130' INT TERM
+  docker compose run --rm --service-ports dev
+  status=$?
+  docker compose down --remove-orphans >/dev/null 2>&1
+  case "$status" in
+    0) printf '%s\n' '开发预览已停止并清理相关容器。'; exit 0 ;;
+    130) printf '%s\n' '开发预览已由用户中断并清理相关容器。' >&2; exit 130 ;;
+    *)
+      case "$status" in
+        125) printf '%s\n' '开发启动失败：localhost:4321 已被占用，请释放端口并重试。' >&2 ;;
+        *) printf '%s\n' '开发运行失败：请查看上方容器日志，检查开发服务器与宿主环境后重试。' >&2 ;;
+      esac
+      exit 3
+      ;;
+  esac
+fi
+
+printf '%s\n' '检查：在容器内清理输出、校验实践记录并构建站点。'
 if docker compose run --rm check; then
   printf '%s\n' '检查成功：首页与稳定详情页已构建。'
   exit 0
 else
   status=$?
   case "$status" in
-    4)
-      printf '%s\n' '实践记录校验失败：请根据上方错误修复内容后重试。' >&2
-      exit 4
-      ;;
-    130)
-      printf '%s\n' '检查已由用户中断。' >&2
-      exit 130
-      ;;
-    *)
-      printf '%s\n' '构建失败：请查看上方容器日志并修复后重试。' >&2
-      exit 5
-      ;;
+    4) printf '%s\n' '实践记录校验失败：请根据上方错误修复内容后重试。' >&2; exit 4 ;;
+    130) printf '%s\n' '检查已由用户中断。' >&2; exit 130 ;;
+    *) printf '%s\n' '构建失败：请查看上方容器日志并修复后重试。' >&2; exit 5 ;;
   esac
 fi

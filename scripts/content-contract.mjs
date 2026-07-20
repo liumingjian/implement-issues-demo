@@ -23,17 +23,20 @@ function parseScalar(value) {
 
 function parseDocument(source) {
   const match = source.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return { metadata: null, body: source, lines: {} };
+  if (!match) return { metadata: null, body: source, lines: {}, quoted: new Set() };
   const metadata = {};
   const lines = {};
+  const quoted = new Set();
   match[1].split("\n").forEach((line, index) => {
     const separator = line.indexOf(":");
     if (separator < 0) return;
     const key = line.slice(0, separator).trim();
-    metadata[key] = parseScalar(line.slice(separator + 1).trim());
+    const rawValue = line.slice(separator + 1).trim();
+    metadata[key] = parseScalar(rawValue);
+    if (/^".*"$/.test(rawValue)) quoted.add(key);
     lines[key] = index + 2;
   });
-  return { metadata, body: match[2], lines };
+  return { metadata, body: match[2], lines, quoted };
 }
 
 function naturalDate(value) {
@@ -52,7 +55,7 @@ function plainText(paragraph) {
     .trim();
 }
 
-function summaryFrom(body) {
+export function summaryFrom(body) {
   const withoutCode = body.replace(/```[\s\S]*?```/g, "");
   const paragraph = withoutCode.split(/\n\s*\n/).map((part) => part.trim()).find((part) => part && !/^(#{1,6}|[-*+] |\d+\. |!\[|>)/.test(part));
   const text = paragraph ? plainText(paragraph) : "";
@@ -96,7 +99,7 @@ export async function validatePractices(root, { today = new Intl.DateTimeFormat(
     }
 
     const source = await readFile(absolute, "utf8");
-    const { metadata, body, lines } = parseDocument(source);
+    const { metadata, body, lines, quoted } = parseDocument(source);
     if (!metadata) {
       errors.push(error(file, 1, "缺少有效 frontmatter", "请在正文前添加 --- 包围的元数据"));
       continue;
@@ -105,21 +108,32 @@ export async function validatePractices(root, { today = new Intl.DateTimeFormat(
     const title = metadata.title;
     if (typeof title !== "string" || title.trim().length < 1 || title.trim().length > 100) errors.push(error(file, lines.title ?? 1, "title 必须是 1–100 个去除首尾空白后的字符", "请填写有效 title"));
     const date = metadata.date;
-    if (!naturalDate(date) || date > today) errors.push(error(file, lines.date ?? 1, "date 必须是非未来的 Asia/Shanghai 真实自然日，且使用引号", "请改为 YYYY-MM-DD 格式的有效实践日期"));
+    if (!naturalDate(date) || date > today || !quoted.has("date")) errors.push(error(file, lines.date ?? 1, "date 必须是非未来的 Asia/Shanghai 真实自然日，且使用引号", "请改为 YYYY-MM-DD 格式的有效实践日期"));
     const tags = metadata.tags ?? [];
     if (!Array.isArray(tags) || tags.length > 5 || new Set(tags).size !== tags.length || tags.some((tag) => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(tag))) errors.push(error(file, lines.tags ?? 1, "tags 必须为至多五个、不重复的 lowercase ASCII slug", "请修正标签并保留需要的作者顺序"));
     if (metadata.draft !== undefined && typeof metadata.draft !== "boolean") errors.push(error(file, lines.draft, "draft 必须是 Boolean", "请使用 true 或 false"));
     if (metadata.summary !== undefined && (typeof metadata.summary !== "string" || metadata.summary.trim().length < 1 || metadata.summary.trim().length > 200)) errors.push(error(file, lines.summary, "summary 必须是 1–200 个字符", "请填写非空摘要或删除字段以自动提取"));
     if (!body.trim()) errors.push(error(file, source.split("\n").length, "正文不能为空", "请添加有意义的正文"));
 
+    let codeFenceOpen = false;
     body.split("\n").forEach((line, index) => {
       const number = source.slice(0, source.indexOf(body)).split("\n").length + index;
+      const fence = line.match(/^(```|~~~)(\S*)\s*$/);
+      if (fence) {
+        if (!codeFenceOpen) {
+          if (!fence[2]) errors.push(error(file, number, "代码块必须声明语言", "请在代码围栏后添加语言名称"));
+          if (/^mermaid$/i.test(fence[2])) errors.push(error(file, number, "不支持 Mermaid", "请使用受支持的图片附件"));
+          codeFenceOpen = fence[1];
+        } else if (fence[1] === codeFenceOpen && !fence[2]) {
+          codeFenceOpen = false;
+        }
+        return;
+      }
+      if (codeFenceOpen) return;
       if (/^#\s/.test(line)) errors.push(error(file, number, "正文不允许一级标题", "请从二级标题 ## 开始；页面标题由 title 生成"));
       if (/<\/?[A-Za-z][^>]*>/.test(line)) errors.push(error(file, number, "不支持原始 HTML", "请改用 CommonMark/GFM Markdown"));
       if (/\[\^[^\]]+\]/.test(line)) errors.push(error(file, number, "不支持脚注", "请将说明写入普通正文"));
       if (/\$\$|(?<!\\)\$[^$]+\$/.test(line)) errors.push(error(file, number, "不支持数学标记", "请使用普通文本或代码块"));
-      if (/^```\s*$/.test(line)) errors.push(error(file, number, "代码块必须声明语言", "请在 ``` 后添加语言名称"));
-      if (/^```mermaid\b/i.test(line)) errors.push(error(file, number, "不支持 Mermaid", "请使用受支持的图片附件"));
     });
 
     const linkPattern = /(!?)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
@@ -130,7 +144,14 @@ export async function validatePractices(root, { today = new Intl.DateTimeFormat(
       if (/^http:/i.test(target)) errors.push(error(file, line, "外部链接必须使用 HTTPS", "请将链接改为 https://"));
       if (/^https:/i.test(target) || /^#/.test(target) || /^mailto:/i.test(target)) continue;
       if (path.isAbsolute(target)) { errors.push(error(file, line, "本地链接不能使用绝对路径", "请改用实践记录旁的相对路径")); continue; }
-      const resolved = path.resolve(path.dirname(absolute), decodeURIComponent(target.split("#")[0]));
+      let decodedTarget;
+      try {
+        decodedTarget = decodeURIComponent(target.split("#")[0]);
+      } catch {
+        errors.push(error(file, line, `本地链接编码无效: ${target}`, "请修正百分号编码"));
+        continue;
+      }
+      const resolved = path.resolve(path.dirname(absolute), decodedTarget);
       if (!resolved.startsWith(`${path.resolve(root)}${path.sep}`)) { errors.push(error(file, line, "本地链接不能越出实践记录目录", "请将目标移入记录的附件分组")); continue; }
       if (!(await exists(resolved))) errors.push(error(file, line, `本地链接目标不存在: ${target}`, "请修正路径或添加目标文件"));
       else if (!resolved.endsWith(".md")) referenced.add(resolved);

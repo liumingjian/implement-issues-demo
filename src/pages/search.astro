@@ -1,0 +1,40 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="搜索实践 — A 工作台">
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">A / 搜索</p>
+      <h1>搜索实践</h1>
+      <p class="lede">搜索标题、摘要、标签和正文。</p>
+      {import.meta.env.DEV && <p class="search-dev-note">开发模式不会生成 Pagefind 索引；请运行 <code>./blog check</code> 验证生产搜索。</p>}
+    </div>
+    <label class="draft-control">
+      <input type="checkbox" data-search-drafts />
+      <span>显示草稿</span>
+    </label>
+  </header>
+
+  <section class="search-workbench" aria-labelledby="search-label">
+    <label id="search-label" for="search-query">搜索标题、摘要、标签和正文</label>
+    <input id="search-query" type="search" autocomplete="off" data-search-input />
+    <p class="search-status" data-search-status aria-live="polite">输入查询开始搜索。输入至少两个字符后开始；搜索服务暂时不可用时请稍后重试；没有找到匹配的实践时可尝试其他关键词。</p>
+    <ol class="search-results" data-search-results></ol>
+    <p class="search-progress" data-search-progress hidden></p>
+    <button type="button" class="search-more" data-search-more hidden>加载更多</button>
+  </section>
+
+  <template data-search-result-template>
+    <li class="search-result">
+      <article>
+        <h2><a data-result-link></a></h2>
+        <p data-result-evidence></p>
+        <ul class="tags" data-result-tags aria-label="标签"></ul>
+      </article>
+    </li>
+  </template>
+
+  <script>
+    import "../scripts/search.mjs";
+  </script>
+</Base>

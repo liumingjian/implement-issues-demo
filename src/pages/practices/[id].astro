@@ -1,20 +1,128 @@
 ---
 import { getCollection, render } from "astro:content";
 import Base from "../../layouts/Base.astro";
+import { practiceNeighbors } from "../../lib/detail.mjs";
+import { orderPractices, practiceSlug } from "../../lib/timeline.mjs";
 
 export async function getStaticPaths() {
   const practices = await getCollection("practices");
-  return practices.map((practice) => ({ params: { id: practice.id }, props: { practice } }));
+  return practices.map((practice) => ({ params: { id: practiceSlug(practice.id) }, props: { practice, practices } }));
 }
 
-const { practice } = Astro.props;
-const { Content } = await render(practice);
+const { practice, practices } = Astro.props;
+const { Content, headings } = await render(practice);
+const contents = headings.filter(({ depth }) => depth === 2 || depth === 3);
+const initial = practiceNeighbors(practices, practice.id, false);
+const navigationRecords = orderPractices(practices).map(({ id, data }) => ({ id, slug: practiceSlug(id), title: data.title, draft: data.draft }));
 ---
 <Base title={`${practice.data.title} — AI 编程实践`}>
-  <a href="/">返回首页</a>
-  <article class="prose prose-slate mt-8">
-    <h1>{practice.data.title}</h1>
-    <time datetime={practice.data.date.toISOString()}>{practice.data.date.toISOString().slice(0, 10)}</time>
-    <Content />
-  </article>
+  <a class="back-link" href="/">← 返回时间线</a>
+  <header class="practice-header">
+    <p class="eyebrow">实践记录 / {practice.data.date.toISOString().slice(0, 10)}</p>
+    <h1 data-pagefind-weight="10">{practice.data.title}</h1>
+    {practice.data.summary && <p class="lede" data-pagefind-weight="3">{practice.data.summary}</p>}
+    <span hidden data-pagefind-meta="draft" data-draft={practice.data.draft ? "true" : "false"}>{String(practice.data.draft)}</span>
+    {practice.data.tags.length > 0 && <ul class="tags" aria-label="标签" data-pagefind-weight="5">{practice.data.tags.map((tag) => <li>{tag}</li>)}</ul>}
+    {practice.data.draft && (
+      <aside class="draft-notice" data-draft-notice>
+        <strong>这是一篇草稿。</strong> 它仍可通过当前网址阅读，但未进入当前列表和搜索。此页面不会改变“显示草稿”的全局偏好。
+      </aside>
+    )}
+    {contents.length > 0 && (
+      <details class="mobile-toc">
+        <summary>文章目录</summary>
+        <nav aria-label="文章目录">
+          <ol>{contents.map((heading) => <li class={`toc-depth-${heading.depth}`}><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ol>
+        </nav>
+      </details>
+    )}
+  </header>
+
+  <div class="practice-layout">
+    <article class="practice-body" data-pagefind-body>
+      <Content />
+    </article>
+    <div hidden data-pagefind-body>
+      <span data-pagefind-meta="date">{practice.data.date.toISOString().slice(0, 10)}</span>
+      <span data-pagefind-meta="title" data-pagefind-weight="10">{practice.data.title}</span>
+      {practice.data.summary && <span data-pagefind-meta="summary" data-pagefind-weight="3">{practice.data.summary}</span>}
+      {practice.data.tags.map((tag) => <span data-pagefind-meta="tag" data-pagefind-weight="5">{tag}</span>)}
+    </div>
+    {contents.length > 0 && (
+      <aside class="desktop-toc">
+        <p>文章目录</p>
+        <nav aria-label="文章目录">
+          <ol>{contents.map((heading) => <li class={`toc-depth-${heading.depth}`}><a href={`#${heading.slug}`}>{heading.text}</a></li>)}</ol>
+        </nav>
+      </aside>
+    )}
+  </div>
+
+  <nav class="practice-navigation" aria-label="前后实践记录">
+    <div data-neighbor="newer">
+      {initial.newer && <a href={`/practices/${practiceSlug(initial.newer.id)}/`}><span>较新的实践</span><strong>{initial.newer.data.title}</strong></a>}
+    </div>
+    <div data-neighbor="older">
+      {initial.older && <a href={`/practices/${practiceSlug(initial.older.id)}/`}><span>较早的实践</span><strong>{initial.older.data.title}</strong></a>}
+    </div>
+  </nav>
+
+  <script define:vars={{ navigationRecords, currentId: practice.id }}>
+    const preferenceKey = "a-workbench-show-drafts";
+    const showDrafts = localStorage.getItem(preferenceKey) === "true";
+    const currentIndex = navigationRecords.findIndex(({ id }) => id === currentId);
+    const eligible = (record) => showDrafts || !record.draft || record.id === currentId;
+    const neighbor = (step) => {
+      for (let index = currentIndex + step; index >= 0 && index < navigationRecords.length; index += step) {
+        if (eligible(navigationRecords[index])) return navigationRecords[index];
+      }
+      return null;
+    };
+    const renderNeighbor = (position, record, label) => {
+      const slot = document.querySelector(`[data-neighbor="${position}"]`);
+      slot.replaceChildren();
+      if (!record) return;
+      const link = document.createElement("a");
+      link.href = `/practices/${encodeURIComponent(record.slug)}/`;
+      const caption = document.createElement("span");
+      caption.textContent = label;
+      const title = document.createElement("strong");
+      title.textContent = record.title;
+      link.append(caption, title);
+      slot.append(link);
+    };
+    renderNeighbor("newer", neighbor(-1), "较新的实践");
+    renderNeighbor("older", neighbor(1), "较早的实践");
+
+    document.querySelectorAll(".practice-body pre").forEach((pre) => {
+      pre.setAttribute("data-pagefind-ignore", "");
+      const code = pre.querySelector("code");
+      if (!code) return;
+      const language = [...code.classList].find((name) => name.startsWith("language-"))?.slice(9) || "text";
+      const frame = document.createElement("div");
+      frame.className = "code-frame";
+      frame.dataset.language = language;
+      const toolbar = document.createElement("div");
+      toolbar.className = "code-toolbar";
+      const label = document.createElement("span");
+      label.textContent = language;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "复制代码";
+      const feedback = document.createElement("span");
+      feedback.className = "copy-feedback";
+      feedback.setAttribute("aria-live", "polite");
+      toolbar.append(label, button, feedback);
+      pre.before(frame);
+      frame.append(toolbar, pre);
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(code.textContent);
+          feedback.textContent = "已复制";
+        } catch {
+          feedback.textContent = "复制失败";
+        }
+      });
+    });
+  </script>
 </Base>
